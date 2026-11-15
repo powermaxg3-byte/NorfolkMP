@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Norfolk Rail MP">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b1120">
+<title>Norfolk Area Rail — Mileposts &amp; Junctions PWA</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--bg:#0b1120;--surface:#111827;--surface-2:#1e293b;--border:#334155;--text:#f8fafc;--muted:#94a3b8;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;width:100%;height:100vh;min-height:620px;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.app-shell{display:flex;flex-direction:column;height:100vh;min-height:620px;width:100%;}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;height:52px;padding:0 12px;background:#0b1120;border-bottom:1px solid var(--border);z-index:1000;flex-shrink:0;}
+.btn-top{display:inline-flex;align-items:center;gap:5px;background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+.btn-top.active{background:#1d4ed8;border-color:#60a5fa;color:#fff;}
+.btn-top.gold{background:rgba(245,158,11,0.18);border-color:#f59e0b;color:#fde68a;}
+.workspace{position:relative;flex:1;display:flex;height:calc(100vh - 52px);min-height:568px;overflow:hidden;}
+.sidebar{width:360px;max-width:100%;height:100%;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:900;flex-shrink:0;}
+@media (max-width:840px){
+.sidebar{position:absolute;left:0;right:0;bottom:0;width:100%;height:50%;border-right:none;border-top:1px solid var(--border);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,0.65);transition:transform 0.22s ease;}
+.sidebar.collapsed{transform:translateY(calc(100% - 42px));}
+}
+.drawer-bar{display:none;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--surface-2);border-radius:16px 16px 0 0;border-bottom:1px solid var(--border);cursor:pointer;}
+@media (max-width:840px){.drawer-bar{display:flex;}}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:99px;font-size:11px;font-weight:600;background:var(--bg);color:var(--muted);border:1px solid var(--border);cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.pill.active{color:#fff;background:var(--surface-2);border-color:#60a5fa;}
+.loc-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid transparent;cursor:pointer;margin-bottom:3px;}
+.loc-item:hover{background:rgba(255,255,255,0.04);}
+.loc-item.selected{background:rgba(59,130,246,0.18);border-color:rgba(59,130,246,0.6);}
+.map-wrap{position:relative;flex:1;min-width:0;height:calc(100vh - 52px);min-height:568px;}
+#map{width:100%;height:calc(100vh - 52px);min-height:568px;background:#0b1120;}
+.detail-card{position:absolute;bottom:14px;right:14px;width:365px;max-width:calc(100% - 28px);background:rgba(15,23,42,0.97);border:1px solid var(--border);border-radius:14px;padding:13px;z-index:950;box-shadow:0 14px 36px rgba(0,0,0,0.75);display:none;}
+.detail-card.open{display:block;}
+@media (max-width:840px){.detail-card{left:10px;right:10px;width:auto;max-width:none;bottom:50px;}}
+.mp-pin{display:flex;align-items:center;justify-content:center;border-radius:99px;font-family:monospace;font-weight:700;font-size:10px;color:#0b1120;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.8);white-space:nowrap;padding:0 5px;}
+.mp-pin.sig{border-color:#fef08a;box-shadow:0 0 0 2px #000,0 3px 8px rgba(0,0,0,0.85);}
+.modal-bg{position:fixed;inset:0;background:rgba(2,6,23,0.82);z-index:2000;display:none;align-items:center;justify-content:center;padding:16px;}
+.modal-bg.open{display:flex;}
+.toast{position:fixed;top:62px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;border:1px solid #3b82f6;padding:7px 14px;border-radius:99px;font-size:12px;font-weight:600;z-index:3000;display:none;}
+.toast.show{display:block;}
+</style>
+</head>
+<body>
+<div class="app-shell">
+<header class="topbar">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-slate-800 border border-amber-500 flex items-center justify-center font-mono font-bold text-xs text-amber-400 shrink-0">NS</div>
+<div class="min-w-0">
+<h1 class="text-sm font-bold truncate m-0">Norfolk Area Rail Mileposts &amp; Junctions</h1>
+<p class="text-[11px] text-slate-400 truncate m-0">90 Locations • LP, N, V, A &amp; NS Lines • FRA DOT IDs</p>
+</div>
+</div>
+<div class="flex items-center gap-1.5 shrink-0">
+<button class="btn-top" id="btn-gps" title="GPS Proximity Radar">GPS</button>
+<button class="btn-top" id="btn-notes" title="Routes, Dispatch &amp; Share">Notes</button>
+<button class="btn-top" id="btn-fit" title="Fit Map to Active Lines">Fit Map</button>
+<button class="btn-top gold" id="btn-save-app" title="Download Standalone HTML File">Save App</button>
+</div>
+</header>
+<div class="workspace">
+<aside class="sidebar" id="sidebar">
+<div class="drawer-bar" id="drawer-handle">
+<span class="text-xs font-bold" id="drawer-count">90 Locations</span>
+<div class="w-9 h-1 rounded-full bg-slate-500"></div>
+<span class="text-xs text-blue-400 font-semibold" id="drawer-toggle-txt">Hide</span>
+</div>
+<div class="p-2.5 border-b border-slate-700 flex flex-col gap-2 shrink-0">
+<div class="relative flex items-center">
+<input type="text" id="search-input" class="w-full bg-slate-950 text-slate-100 border border-slate-700 rounded-lg py-1.5 pl-3 pr-7 text-xs outline-none focus:border-blue-500" placeholder="Search MP (LP1.8, N6.3, V5.4), street, or DOT ID...">
+<button id="search-clear" class="absolute right-2 text-slate-400 text-sm hidden">&times;</button>
+</div>
+<div class="flex gap-1.5 overflow-x-auto pb-0.5" id="line-filters">
+<button class="pill active" data-line="ALL">All (90)</button>
+<button class="pill" data-line="LP"><span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>LP Line</button>
+<button class="pill" data-line="N"><span class="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>N Line</button>
+<button class="pill" data-line="V"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>V Line</button>
+<button class="pill" data-line="A"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>A Line</button>
+<button class="pill" data-line="NS"><span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>NS Line</button>
+<button class="pill" data-line="SIGNALS">Signals Only</button>
+</div>
+</div>
+<div id="gps-banner" class="hidden px-3 py-1.5 bg-emerald-950/60 border-b border-emerald-700/50 text-xs text-emerald-200 items-center justify-between gap-2 shrink-0">
+<span id="gps-text">GPS active</span>
+<button id="btn-nearest" class="px-2 py-0.5 rounded bg-emerald-700 text-white text-[11px] font-semibold">Nearest</button>
+</div>
+<div class="flex-1 overflow-y-auto p-2" id="loc-list"></div>
+</aside>
+<main class="map-wrap">
+<div id="map"></div>
+<div class="absolute top-2.5 right-2.5 z-[800] flex items-center gap-2 bg-slate-900/95 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
+<label for="basemap-select" class="text-slate-400 font-semibold">Map:</label>
+<select id="basemap-select" class="bg-slate-800 text-slate-100 border border-slate-600 rounded px-1.5 py-1 text-xs font-semibold">
+<option value="hybrid">Google / Satellite Hybrid</option>
+<option value="sat">Aerial Imagery</option>
+<option value="streets">Street &amp; Rail</option>
+</select>
+</div>
+<section class="detail-card" id="detail-card">
+<div class="flex justify-between items-start gap-2 mb-2.5">
+<div>
+<div class="flex flex-wrap gap-1 mb-1" id="detail-badges"></div>
+<h2 class="text-base font-extrabold leading-tight m-0" id="detail-title">Colley Ave.</h2>
+</div>
+<button class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 flex items-center justify-center text-base cursor-pointer" id="detail-close">&times;</button>
+</div>
+<div class="grid grid-cols-2 gap-2 mb-2.5">
+<div class="bg-slate-950 border border-slate-700 rounded-lg p-2">
+<div class="text-[10px] uppercase tracking-wider text-slate-400">USDOT / FRA Crossing ID</div>
+<div class="text-xs font-bold font-mono text-amber-300 mt-0.5" id="detail-dot">—</div>
+</div>
+<div class="bg-slate-950 border border-slate-700 rounded-lg p-2">
+<div class="text-[10px] uppercase tracking-wider text-slate-400">Corridor / Section</div>
+<div class="text-xs font-semibold text-slate-100 mt-0.5" id="detail-section">—</div>
+</div>
+<div class="col-span-2 bg-slate-950 border border-slate-700 rounded-lg p-2">
+<div class="text-[10px] uppercase tracking-wider text-slate-400">Signal, Speed &amp; Operating Notes</div>
+<div class="text-xs font-semibold text-slate-200 mt-0.5" id="detail-notes">—</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-1.5 mb-2">
+<a id="nav-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener" class="py-2 px-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold text-center no-underline">Google Maps</a>
+<a id="nav-apple" href="https://maps.apple.com" target="_blank" rel="noopener" class="py-2 px-1.5 rounded-lg bg-slate-700 text-white text-xs font-bold text-center no-underline">Apple Maps</a>
+<a id="nav-waze" href="https://waze.com" target="_blank" rel="noopener" class="py-2 px-1.5 rounded-lg bg-cyan-600 text-white text-xs font-bold text-center no-underline">Waze</a>
+</div>
+<div class="flex gap-1.5 flex-wrap">
+<button class="flex-1 bg-slate-800 border border-slate-600 rounded-md py-1.5 px-2 text-[11px] font-semibold text-slate-100 cursor-pointer" id="btn-copy-dot">Copy DOT ID</button>
+<button class="flex-1 bg-slate-800 border border-slate-600 rounded-md py-1.5 px-2 text-[11px] font-semibold text-slate-100 cursor-pointer" id="btn-copy-coords">Copy GPS</button>
+<a id="btn-fra-link" href="https://safetydata.fra.dot.gov" target="_blank" rel="noopener" class="flex-1 bg-slate-800 border border-slate-600 rounded-md py-1.5 px-2 text-[11px] font-semibold text-slate-100 text-center no-underline">FRA Form</a>
+<button class="flex-1 bg-slate-800 border border-slate-600 rounded-md py-1.5 px-2 text-[11px] font-semibold text-slate-100 cursor-pointer" id="btn-calibrate">Adjust Pin</button>
+</div>
+</section>
+</main>
+</div>
+</div>
+<div class="modal-bg" id="notes-modal">
+<div class="bg-slate-900 border border-slate-700 rounded-xl w-[520px] max-w-full max-h-[85vh] overflow-y-auto p-4 shadow-2xl">
+<div class="flex justify-between items-center mb-3">
+<h2 class="text-base font-bold m-0">Field Notes, Routes, Dispatch &amp; Install</h2>
+<button class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-600 text-slate-300" id="notes-close">&times;</button>
+</div>
+<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 mb-2.5 text-xs space-y-1">
+<div class="text-amber-400 font-bold uppercase text-[11px]">Contact Notes from Source</div>
+<div><strong>Dispatch:</strong> <a href="tel:+15405243905" class="text-blue-400 font-bold">1 (540) 524-3905</a> (Tap to Call)</div>
+<div><strong>OSS:</strong> <span class="font-mono">75897116</span></div>
+<div><strong>Tower:</strong> Incomplete in source (NS Emergency: <a href="tel:+18004532530" class="text-blue-400">1-800-453-2530</a>)</div>
+</div>
+<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 mb-2.5 text-xs space-y-1.5">
+<div class="text-amber-400 font-bold uppercase text-[11px]">Handwritten Routes (A Line / NIT)</div>
+<div><strong>Route A:</strong> MAIN &rarr; Thole &rarr; Coleman &rarr; W. Junction &rarr; Marshalling &rarr; Back Gate</div>
+<div><strong>Route B:</strong> Coleman &rarr; Thole &rarr; QM &rarr; W. Junction &rarr; Marshalling &rarr; Back Gate</div>
+</div>
+<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 mb-2.5 text-xs space-y-1">
+<div class="text-amber-400 font-bold uppercase text-[11px]">Marked Tracks</div>
+<div><strong>E-marked tracks:</strong> <span class="font-mono">16, 17, 18, 25, 26</span></div>
+<div><strong>W-marked tracks:</strong> <span class="font-mono">19, 20, 21, 22, 36, 37, 40</span></div>
+</div>
+<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
+<div class="text-amber-400 font-bold uppercase text-[11px]">Install on iOS / Android</div>
+<p class="text-slate-300 m-0">Tap <strong>Save App</strong> to download the single-file app. On iPhone (Safari), tap Share &rarr; <strong>Add to Home Screen</strong>. On Android (Chrome), tap Menu (⋮) &rarr; <strong>Add to Home screen</strong>.</p>
+<div class="flex gap-2 pt-1">
+<button id="btn-download-modal" class="flex-1 bg-amber-600 text-white rounded-md py-1.5 px-2 font-bold">Download Standalone App (.html)</button>
+<button id="btn-reset-pins" class="flex-1 bg-slate-800 border border-slate-600 text-slate-200 rounded-md py-1.5 px-2 font-semibold">Reset Calibrated Pins</button>
+</div>
+</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const LINE_META={LP:{name:"LP Line",color:"#f59e0b"},N:{name:"N Line",color:"#38bdf8"},V:{name:"V Line",color:"#10b981"},A:{name:"A Line",color:"#a855f7"},NS:{name:"NS Line",color:"#ef4444"}};
+const S=["Lambert's Point to Canal Dr.","Bridge #5","Norfolk / Chesapeake City Line","South Norfolk to West Junction","Chesapeake / Norfolk City Line","South Norfolk to Jarratt District","S. Norfolk to Jarratt (Cont.)","QM Junction to NIT","West Junction to NIT","Carolina Jct. to Albemarle"];
+const RAW_LOCS=[
+["lp-1.8","LP","LP1.8","Colley Ave.",0,1,0,"467336N","CHAN (2)",36.872068,-76.2958],
+["lp-2.1","LP","LP2.1","Colonial Ave.",0,0,0,"467337V","Grade crossing",36.870747,-76.291129],
+["lp-2.3","LP","LP2.3","Llewellyn Ave.",0,0,0,"467339J","Grade crossing",36.86984,-76.288004],
+["lp-2.5","LP","LP2.5","Granby St.",0,0,0,"467341K","Grade crossing",36.868823,-76.284633],
+["lp-2.8","LP","LP2.8","Church St.",0,0,0,"467352X","Grade crossing",36.867272,-76.27917],
+["lp-3.0","LP","LP3.0","Barre Ave. (Signal)",0,1,0,"467356A","Printed signal entry",36.86598,-76.2747],
+["lp-3.1","LP","LP3.1","Barre Ave.",0,0,0,"467356A","Grade crossing",36.865832,-76.274211],
+["lp-3.6","LP","LP3.6","St. Julians Ave.",0,0,0,"467358N","Grade crossing",36.861079,-76.269047],
+["lp-3.9","LP","LP3.9","Goff St.",0,0,0,"467359V","Amtrak Wye / Goff Switch",36.857608,-76.270077],
+["lp-4.0s","LP","LP4.0","Princess",0,1,0,"","MAIN (1) only",36.8562,-76.2709],
+["lp-4.0","LP","LP4.0","Princess Anne Rd.",0,0,0,"467360P","Grade crossing",36.855778,-76.271142],
+["lp-4.4","LP","LP4.4","Olney Rd.",0,0,0,"467365Y","Grade crossing",36.850628,-76.273449],
+["lp-4.8","LP","LP4.8","Harbor Park",0,1,0,"467367M","20 mph",36.844896,-76.275737],
+["lp-4.9","LP","LP4.9","Park Ave.",0,1,0,"467368U","25 mph",36.844157,-76.275955],
+["n-1.3","N","N1.3","Bridge #5",1,1,0,"","Eastern Branch Elizabeth River",36.8412,-76.2752],
+["n-1.5","N","N1.5","Private X-ing",1,0,0,"467370V","Shipyard Access",36.83677,-76.274317],
+["n-1.7","N","N1.7","Indian River Rd.",1,0,0,"467371C","Grade crossing",36.833683,-76.273692],
+["n-2.2","N","N2.2","Berkley Ave. Extn.",1,0,0,"467374X","Grade crossing",36.827142,-76.27237],
+["n-2.4","N","N2.4","NS Junction",2,1,0,"","CHAN (1)",36.8241,-76.27175],
+["n-2.7","N","N2.7","Liberty St.",2,1,0,"467376L","25-30 (written; unit unspecified)",36.819294,-76.270825],
+["n-2.9","N","N2.9","Ohio St.",2,0,0,"467377T","Grade crossing",36.816119,-76.270088],
+["n-3.2","N","N3.2","Park Ave.",2,1,0,"467378A","3rd track",36.813136,-76.269479],
+["n-3.3","N","N3.3","South Norfolk",2,1,0,"","Interlocking / Junction",36.8115,-76.2691],
+["n-5.1","N","N5.1","Portlock Rd.",2,0,0,"467381H","Grade crossing",36.785388,-76.271292],
+["n-5.2","N","N5.2","West End Portlock",2,1,0,"","Signal entry",36.784,-76.2725],
+["n-5.7","N","N5.7","Mill Dam Cr. Bridge",2,0,0,"","Bridge",36.7795,-76.2782],
+["n-6.3","N","N6.3","Beltline Diamond",2,1,0,"","NPB Diamond Interlocking (Rule 292)",36.776,-76.2885],
+["n-6.5","N","N6.5","Bridge #7",2,1,0,"","Southern Branch Elizabeth River",36.7748,-76.294],
+["n-7.4","N","N7.4","Shell Rd.",2,0,0,"467384D","Grade crossing",36.772642,-76.30875],
+["n-8.3","N","N8.3","Canal Dr. (Signal)",2,1,0,"467390G","Signal entry",36.770149,-76.323972],
+["n-8.4","N","N8.4","Canal Dr.",2,0,0,"467390G","Grade crossing",36.7699,-76.3254],
+["n-10.5","N","10.5*","Glasberry (Galberry Rd.)",2,1,1,"467395R","Gates/lights only; no signal (handwritten)",36.763799,-76.361862],
+["n-11.2","N","11.2*","Yadkin Rd.",2,1,1,"","Signal: EAST (handwritten)",36.7618,-76.374],
+["v-4.9s","V","V4.9","Hoover Ave. (Signal)",3,1,0,"467698A","Signal entry",36.81125,-76.2671],
+["v-4.9","V","V4.9","Hoover Ave.",3,0,0,"467698A","Grade crossing",36.811135,-76.267215],
+["v-4.8","V","V4.8","Atlantic Ave.",3,0,0,"467697T","Old Atlantic Ave.",36.813557,-76.26479],
+["v-4.7","V","V4.7","Carolina Junction",3,1,0,"","Junction with NS Line",36.8143,-76.264],
+["v-4.6","V","V4.6","Liberty St.",3,0,0,"467696L","Grade crossing",36.815729,-76.262612],
+["v-4.2","V","V4.2","Berkley Ave.",3,0,0,"467694X","Grade crossing",36.820768,-76.257502],
+["v-2.8","V","V2.8","East Branch Bridge",3,1,0,"","15 mph",36.8355,-76.2478],
+["v-2.3","V","V2.3","Tidewater Junction",4,1,0,"","Junction with A Line",36.8415,-76.2442],
+["v-2.2","V","V2.2","Westminster Ave.",4,0,0,"467692J","Grade crossing",36.843143,-76.242957],
+["v-5.2","V","V5.2","South Norfolk (EB)",5,1,0,"","10 mph district (handwritten)",36.8091,-76.2694],
+["v-5.3","V","V5.3","Chesapeake Ave.",5,0,0,"467699G","10 mph district",36.80795,-76.270405],
+["v-5.4","V","V5.4","Rodgers St.",5,0,0,"467700Y","Grade crossing",36.805878,-76.27248],
+["v-5.4s","V","V5.4","Rodgers St. (Signal)",5,1,0,"467700Y","10 mph; approach distant",36.80575,-76.2726],
+["v-6.0","V","V6.0","Private X-ing",5,0,0,"961330H","Private crossing",36.799344,-76.279051],
+["v-6.5p","V","V6.5","Private X-ing",5,0,0,"","Private crossing",36.7962,-76.2865],
+["v-6.5","V","V6.5","Belt Junction",5,1,0,"467703U","Rosemont Ave. / NPB Junction",36.796083,-76.28685],
+["v-6.8","V","V6.8","South Branch Bridge",5,0,0,"","Bridge",36.7959,-76.2945],
+["v-7.0","V","V7.0","South Branch Bridge (EB)",5,1,0,"","Signal entry",36.7958,-76.298],
+["v-7.9","V","V7.9","Craddock St.",5,0,0,"467704B","Administration Ave. / Craddock",36.795595,-76.311351],
+["v-8.5u","V","V8.5","[Unlabeled Entry] (Magazine Rd.)",5,0,0,"467705H","Unlabeled on sheet",36.793939,-76.322527],
+["v-8.5","V","V8.5","St. Julians Annex (EB)",5,1,0,"","Signal entry",36.7938,-76.3235],
+["v-8.9","V","V8.9","George Washington Hwy.",5,0,0,"467706P","Grade crossing",36.793008,-76.32881],
+["v-9.3","V","V9.3","[Unlabeled Entry] (Deep Creek Blvd.)",6,0,0,"467707W","Unlabeled on sheet",36.791939,-76.336011],
+["v-9.5","V","V9.5","Gust Lane",6,0,0,"467708D","Grade crossing",36.791038,-76.342079],
+["v-10.8","V","V10.8","Cavalier Blvd.",6,0,0,"467709K","Grade crossing",36.787803,-76.363842],
+["a-1.2","A","A1.2","Coleman Place",4,1,0,"","Signal / Junction",36.8605,-76.247],
+["a-1.3","A","A1.3","Princess Anne Rd.",4,0,0,"467674L","Grade crossing",36.861556,-76.247469],
+["a-1.4","A","A1.4","Yard Limits",4,0,0,"","Yard Limit sign",36.8632,-76.2479],
+["a-1.7","A","A1.7","Ingleside Rd.",4,0,0,"467676A","Grade crossing",36.8672,-76.2489],
+["a-1.8","A","A1.8","Taft Terrace",4,0,0,"467672X","Tait / Taft Terrace",36.868289,-76.249177],
+["a-2.0","A","A2.0","Peterson St.",4,0,0,"467671R","Grade crossing",36.871841,-76.250024],
+["a-2.1","A","A2.1","Hanbury St.",4,0,0,"467670J","Grade crossing",36.87361,-76.250492],
+["a-2.2","A","A2.2","Lafayette Blvd.",4,0,0,"467669P","Grade crossing",36.874998,-76.250837],
+["a-2.3","A","A2.3","Chesapeake Blvd.",4,0,0,"467668H","Grade crossing",36.877053,-76.251349],
+["a-2.3s","A","A2.3","Chesap. Blvd. (WB)",4,1,0,"467668H","Signal entry",36.8772,-76.25138],
+["a-2.8","A","A2.8","Argonne Ave.",4,1,0,"467667B","Signal entry",36.882547,-76.252738],
+["a-3.2","A","A3.2","Tanners Cr. Bridge",4,0,0,"","Bridge",36.8888,-76.2542],
+["a-3.3","A","A3.3","Norview Ave.",4,0,0,"467665M","Grade crossing",36.890405,-76.254636],
+["a-4.1","A","A4.1","Private X-ing",4,0,0,"467663Y","Industry Access",36.902978,-76.257749],
+["a-4.2","A","A4.2","Spring Switch (WB)",4,1,0,"","Signal entry",36.9041,-76.258],
+["a-4.3","A","A4.3","Thole St.",4,1,0,"467662S","Route A & Route B waypoint",36.905305,-76.258346],
+["a-5.3","A","A5.3","Little Creek Rd.",4,1,0,"467661K","Signal entry",36.915131,-76.270003],
+["a-5.5","A","A5.5","Granby St.",4,0,0,"467660D","Grade crossing",36.916721,-76.27233],
+["a-5.9","A","A5.9","QM Junction",4,0,0,"957089C","Route B waypoint / NIT lead",36.9195,-76.278],
+["a-6.8","A","A6.8","Speed Restriction",4,0,0,"","Speed restriction sign",36.9285,-76.2915],
+["a-7.1","A","A7.1","Private X-ing",4,0,0,"857675V","Private RR Access",36.931908,-76.294835],
+["a-7.2","A","A7.2","West Junction",4,0,0,"","Route A & Route B waypoint",36.9325,-76.2965],
+["a-6.1","A","A6.1*","Ruthven St. (Rethven Rd.)",7,0,1,"857676C","Handwritten: Rethven Rd. A6.1",36.920127,-76.286618],
+["a-6.7","A","A6.7*","Diven St.",7,0,1,"857677J","Handwritten: A6.7",36.919307,-76.294157],
+["a-mcb","A","NIT-B","Mason Creek Bridge",8,0,0,"","West Junction to NIT",36.926,-76.304],
+["a-hblvd","A","NIT-H","Hampton Blvd.",8,0,0,"857678R","West Junction to NIT",36.917633,-76.310258],
+["ns-2.1","NS","NS2.1","Carolina Junction (NB)",9,1,0,"947909V","Signal entry",36.815253,-76.261455],
+["ns-3.0","NS","NS3.0","Strawberry Lane",9,0,0,"465448F","Grade crossing",36.805099,-76.257191],
+["ns-3.2","NS","NS3.2","Narrow St.",9,1,0,"","Signal entry",36.8025,-76.2564],
+["ns-3.5","NS","NS3.5","Providence Rd.",9,0,0,"465445K","Grade crossing",36.798374,-76.255159],
+["ns-3.9","NS","NS3.9","Woodbine Rd.",9,0,0,"","Albemarle corridor",36.7932,-76.2538],
+["ns-4.0","NS","NS4.0","Yard Limits",9,0,0,"","Yard Limit sign",36.7918,-76.2534]
+];
+const LOCATIONS=RAW_LOCS.map(([id,line,mp,name,secIdx,signal,handwritten,dot,notes,lat,lng])=>({id,line,mp,name,section:S[secIdx],signal:Boolean(signal),handwritten:Boolean(handwritten),dot,notes,lat,lng}));
+let activeFilter="ALL",searchQuery="",selectedId=null,calibrateMode=false,userPos=null,gpsWatchId=null,customCoords={};
+try{customCoords=JSON.parse(localStorage.getItem("norfolk_mp_calibrated_v1")||"{}");}catch(e){customCoords={};}
+let toastTimer=null;
+function showToast(msg){
+const el=document.getElementById("toast");
+el.textContent=msg;
+el.classList.add("show");
+clearTimeout(toastTimer);
+toastTimer=setTimeout(()=>el.classList.remove("show"),2500);
+}
+function getCoords(loc){return customCoords[loc.id]?customCoords[loc.id]:[loc.lat,loc.lng];}
+function haversineMiles(lat1,lon1,lat2,lon2){
+const R=3958.8,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+const map=L.map("map",{center:[36.845,-76.275],zoom:12,zoomControl:false});
+L.control.zoom({position:"bottomleft"}).addTo(map);
+const esriSat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19});
+const esriTrans=L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",{maxZoom:19});
+const esriLabels=L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19});
+const googleHybrid=L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",{maxZoom:21,subdomains:["mt0","mt1","mt2","mt3"]});
+googleHybrid.on("tileerror",(ev)=>{if(ev&&ev.tile)ev.tile.style.display="none";});
+const esriStreets=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",{maxZoom:19});
+const BASEMAPS={hybrid:L.layerGroup([esriSat,esriTrans,esriLabels,googleHybrid]),sat:L.layerGroup([esriSat]),streets:L.layerGroup([esriStreets])};
+let currentBasemap=BASEMAPS.hybrid.addTo(map);
+document.getElementById("basemap-select").addEventListener("change",(e)=>{
+map.removeLayer(currentBasemap);
+currentBasemap=(BASEMAPS[e.target.value]||BASEMAPS.hybrid).addTo(map);
+});
+const markerLayer=L.layerGroup().addTo(map);
+let userMarker=null,userCircle=null;
+function getFilteredLocations(){
+const q=searchQuery.trim().toLowerCase();
+return LOCATIONS.filter((loc)=>{
+if(activeFilter==="SIGNALS"&&!loc.signal)return false;
+if(activeFilter!=="ALL"&&activeFilter!=="SIGNALS"&&loc.line!==activeFilter)return false;
+if(!q)return true;
+return loc.name.toLowerCase().includes(q)||loc.mp.toLowerCase().includes(q)||loc.dot.toLowerCase().includes(q)||loc.notes.toLowerCase().includes(q)||loc.section.toLowerCase().includes(q);
+});
+}
+function renderMarkers(){
+markerLayer.clearLayers();
+getFilteredLocations().forEach((loc)=>{
+const coords=getCoords(loc);
+const color=LINE_META[loc.line].color;
+const icon=L.divIcon({className:"",html:'<div class="mp-pin '+(loc.signal?"sig":"")+'" style="background:'+color+';">'+loc.mp+'</div>',iconSize:[50,20],iconAnchor:[25,10]});
+const marker=L.marker(coords,{icon,draggable:calibrateMode&&selectedId===loc.id});
+marker.on("click",()=>selectLocation(loc.id,true));
+marker.on("dragend",(ev)=>{
+const pos=ev.target.getLatLng();
+customCoords[loc.id]=[Number(pos.lat.toFixed(6)),Number(pos.lng.toFixed(6))];
+try{localStorage.setItem("norfolk_mp_calibrated_v1",JSON.stringify(customCoords));}catch(e){}
+if(selectedId===loc.id)updateDetailCard(loc);
+showToast("Saved calibrated pin for "+loc.mp);
+});
+marker.addTo(markerLayer);
+});
+}
+function renderList(){
+const container=document.getElementById("loc-list");
+const filtered=getFilteredLocations();
+document.getElementById("drawer-count").textContent=filtered.length+(filtered.length===1?" Location":" Locations");
+container.innerHTML="";
+if(!filtered.length){
+const empty=document.createElement("div");
+empty.className="p-6 text-center text-slate-400 text-xs";
+empty.textContent="No matching mileposts or junctions.";
+container.appendChild(empty);
+return;
+}
+let lastSec="";
+filtered.forEach((loc)=>{
+const secKey=loc.line+" — "+loc.section;
+if(secKey!==lastSec){
+lastSec=secKey;
+const hdr=document.createElement("div");
+hdr.className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1.5 pt-2.5 pb-1";
+hdr.textContent=secKey;
+container.appendChild(hdr);
+}
+const row=document.createElement("div");
+row.className="loc-item"+(selectedId===loc.id?" selected":"");
+const left=document.createElement("div");
+left.className="flex items-center gap-2 min-w-0";
+const tag=document.createElement("span");
+tag.className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded text-slate-950 shrink-0 min-w-[52px] text-center";
+tag.style.background=LINE_META[loc.line].color;
+tag.textContent=loc.mp;
+const info=document.createElement("div");
+info.className="min-w-0";
+const title=document.createElement("div");
+title.className="text-xs truncate "+(loc.signal?"font-extrabold text-white":"font-medium text-slate-200");
+title.textContent=loc.name;
+const sub=document.createElement("div");
+sub.className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap mt-0.5";
+if(loc.dot){
+const dChip=document.createElement("span");
+dChip.className="font-mono text-[10px] bg-slate-950 border border-slate-700 text-amber-300 px-1 rounded";
+dChip.textContent="DOT "+loc.dot;
+sub.appendChild(dChip);
+}
+const nSpan=document.createElement("span");
+nSpan.textContent=loc.notes;
+sub.appendChild(nSpan);
+info.appendChild(title);
+info.appendChild(sub);
+left.appendChild(tag);
+left.appendChild(info);
+row.appendChild(left);
+if(userPos){
+const coords=getCoords(loc);
+const d=haversineMiles(userPos.lat,userPos.lng,coords[0],coords[1]);
+const distEl=document.createElement("span");
+distEl.className="font-mono text-[11px] text-emerald-400 shrink-0";
+distEl.textContent=d<0.2?Math.round(d*5280)+" ft":d.toFixed(2)+" mi";
+row.appendChild(distEl);
+}
+row.addEventListener("click",()=>selectLocation(loc.id,true));
+container.appendChild(row);
+});
+}
+function updateDetailCard(loc){
+const coords=getCoords(loc);
+const meta=LINE_META[loc.line];
+const bWrap=document.getElementById("detail-badges");
+bWrap.innerHTML="";
+const b1=document.createElement("span");
+b1.className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase text-slate-950";
+b1.style.background=meta.color;
+b1.textContent=meta.name;
+bWrap.appendChild(b1);
+const b2=document.createElement("span");
+b2.className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-800 text-white border border-slate-600";
+b2.textContent=loc.mp;
+bWrap.appendChild(b2);
+if(loc.signal){
+const b3=document.createElement("span");
+b3.className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase bg-yellow-200 text-slate-950";
+b3.textContent="Signal Entry";
+bWrap.appendChild(b3);
+}
+document.getElementById("detail-title").textContent=loc.name;
+document.getElementById("detail-dot").textContent=loc.dot||"N/A (Junction / Bridge)";
+document.getElementById("detail-section").textContent=loc.section;
+document.getElementById("detail-notes").textContent=loc.notes+" • GPS: "+coords[0].toFixed(5)+", "+coords[1].toFixed(5);
+document.getElementById("nav-gmaps").href="https://www.google.com/maps/dir/?api=1&destination="+coords[0]+","+coords[1];
+document.getElementById("nav-apple").href="https://maps.apple.com/?daddr="+coords[0]+","+coords[1]+"&dirflg=d";
+document.getElementById("nav-waze").href="https://waze.com/ul?ll="+coords[0]+","+coords[1]+"&navigate=yes";
+const fraLink=document.getElementById("btn-fra-link");
+if(loc.dot){
+fraLink.href="https://safetydata.fra.dot.gov/OfficeofSafety/PublicSite/Crossing/Crossing.aspx?phasetype=C&rpttype=I&txtcrossingnum="+loc.dot;
+fraLink.style.display="inline-block";
+}else{
+fraLink.style.display="none";
+}
+document.getElementById("btn-calibrate").textContent=calibrateMode?"Lock Pin":"Adjust Pin";
+document.getElementById("detail-card").classList.add("open");
+}
+function selectLocation(id,panMap){
+selectedId=id;
+const loc=LOCATIONS.find((l)=>l.id===id);
+if(!loc)return;
+renderMarkers();
+renderList();
+updateDetailCard(loc);
+if(panMap)map.setView(getCoords(loc),Math.max(map.getZoom(),16),{animate:true});
+if(window.innerWidth<=840){
+document.getElementById("sidebar").classList.add("collapsed");
+document.getElementById("drawer-toggle-txt").textContent="Show List";
+}
+}
+document.getElementById("detail-close").addEventListener("click",()=>{
+document.getElementById("detail-card").classList.remove("open");
+calibrateMode=false;
+selectedId=null;
+renderMarkers();
+renderList();
+});
+document.getElementById("btn-calibrate").addEventListener("click",()=>{
+if(!selectedId)return;
+calibrateMode=!calibrateMode;
+const loc=LOCATIONS.find((l)=>l.id===selectedId);
+renderMarkers();
+updateDetailCard(loc);
+showToast(calibrateMode?"Drag pin on map to calibrate":"Pin position locked");
+});
+function copyText(text,label){
+const ta=document.createElement("textarea");
+ta.value=text;
+document.body.appendChild(ta);
+ta.select();
+try{document.execCommand("copy");showToast("Copied "+label+": "+text);}catch(e){}
+document.body.removeChild(ta);
+}
+document.getElementById("btn-copy-dot").addEventListener("click",()=>{
+const loc=LOCATIONS.find((l)=>l.id===selectedId);
+if(!loc||!loc.dot){showToast("No DOT ID for this junction/bridge");return;}
+copyText(loc.dot,"DOT ID");
+});
+document.getElementById("btn-copy-coords").addEventListener("click",()=>{
+const loc=LOCATIONS.find((l)=>l.id===selectedId);
+if(!loc)return;
+const c=getCoords(loc);
+copyText(c[0].toFixed(6)+", "+c[1].toFixed(6),"GPS");
+});
+document.querySelectorAll("#line-filters .pill").forEach((btn)=>{
+btn.addEventListener("click",()=>{
+document.querySelectorAll("#line-filters .pill").forEach((b)=>b.classList.remove("active"));
+btn.classList.add("active");
+activeFilter=btn.dataset.line;
+renderMarkers();
+renderList();
+const filtered=getFilteredLocations();
+if(filtered.length)map.fitBounds(L.latLngBounds(filtered.map((l)=>getCoords(l))),{padding:[36,36]});
+});
+});
+const searchInput=document.getElementById("search-input");
+const searchClear=document.getElementById("search-clear");
+searchInput.addEventListener("input",(e)=>{
+searchQuery=e.target.value;
+searchClear.style.display=searchQuery?"block":"none";
+renderMarkers();
+renderList();
+});
+searchClear.addEventListener("click",()=>{
+searchInput.value="";
+searchQuery="";
+searchClear.style.display="none";
+renderMarkers();
+renderList();
+});
+document.getElementById("drawer-handle").addEventListener("click",()=>{
+const sb=document.getElementById("sidebar");
+sb.classList.toggle("collapsed");
+document.getElementById("drawer-toggle-txt").textContent=sb.classList.contains("collapsed")?"Show List":"Hide";
+});
+document.getElementById("btn-fit").addEventListener("click",()=>{
+const filtered=getFilteredLocations();
+if(filtered.length)map.fitBounds(L.latLngBounds(filtered.map((l)=>getCoords(l))),{padding:[36,36]});
+});
+function downloadStandaloneApp(){
+const blob=new Blob([document.documentElement.outerHTML],{type:"text/html;charset=utf-8"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;
+a.download="Norfolk-Area-Rail-Mileposts-PWA.html";
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+setTimeout(()=>URL.revokeObjectURL(url),1500);
+showToast("Saved Norfolk-Area-Rail-Mileposts-PWA.html");
+}
+document.getElementById("btn-save-app").addEventListener("click",downloadStandaloneApp);
+document.getElementById("btn-download-modal").addEventListener("click",downloadStandaloneApp);
+document.getElementById("btn-gps").addEventListener("click",()=>{
+const btn=document.getElementById("btn-gps");
+if(gpsWatchId!==null){
+navigator.geolocation.clearWatch(gpsWatchId);
+gpsWatchId=null;
+btn.classList.remove("active");
+document.getElementById("gps-banner").classList.add("hidden");
+document.getElementById("gps-banner").classList.remove("flex");
+if(userMarker){map.removeLayer(userMarker);userMarker=null;}
+if(userCircle){map.removeLayer(userCircle);userCircle=null;}
+return;
+}
+if(!navigator.geolocation){showToast("Geolocation unavailable");return;}
+btn.classList.add("active");
+gpsWatchId=navigator.geolocation.watchPosition(
+(pos)=>{
+userPos={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+if(!userMarker){
+userMarker=L.circleMarker([userPos.lat,userPos.lng],{radius:7,color:"#fff",weight:2,fillColor:"#3b82f6",fillOpacity:1}).addTo(map);
+userCircle=L.circle([userPos.lat,userPos.lng],{radius:userPos.acc,color:"#3b82f6",weight:1,fillOpacity:0.12}).addTo(map);
+map.setView([userPos.lat,userPos.lng],14);
+}else{
+userMarker.setLatLng([userPos.lat,userPos.lng]);
+userCircle.setLatLng([userPos.lat,userPos.lng]).setRadius(userPos.acc);
+}
+let nearest=null,minD=Infinity;
+LOCATIONS.forEach((l)=>{
+const c=getCoords(l);
+const d=haversineMiles(userPos.lat,userPos.lng,c[0],c[1]);
+if(d<minD){minD=d;nearest=l;}
+});
+const banner=document.getElementById("gps-banner");
+banner.classList.remove("hidden");
+banner.classList.add("flex");
+document.getElementById("gps-text").textContent=nearest?"Nearest: "+nearest.mp+" "+nearest.name+" ("+minD.toFixed(2)+" mi)":"GPS Active";
+renderList();
+},
+()=>{btn.classList.remove("active");gpsWatchId=null;showToast("Location permission denied");},
+{enableHighAccuracy:true,maximumAge:5000}
+);
+});
+document.getElementById("btn-nearest").addEventListener("click",()=>{
+if(!userPos)return;
+let nearest=null,minD=Infinity;
+LOCATIONS.forEach((l)=>{
+const c=getCoords(l);
+const d=haversineMiles(userPos.lat,userPos.lng,c[0],c[1]);
+if(d<minD){minD=d;nearest=l;}
+});
+if(nearest)selectLocation(nearest.id,true);
+});
+const notesModal=document.getElementById("notes-modal");
+document.getElementById("btn-notes").addEventListener("click",()=>notesModal.classList.add("open"));
+document.getElementById("notes-close").addEventListener("click",()=>notesModal.classList.remove("open"));
+notesModal.addEventListener("click",(e)=>{if(e.target===notesModal)notesModal.classList.remove("open");});
+document.getElementById("btn-reset-pins").addEventListener("click",()=>{
+customCoords={};
+try{localStorage.removeItem("norfolk_mp_calibrated_v1");}catch(e){}
+renderMarkers();
+renderList();
+showToast("Calibrated pins reset");
+});
+renderMarkers();
+renderList();
+setTimeout(()=>map.invalidateSize(),150);
+window.addEventListener("resize",()=>map.invalidateSize());
+</script>
+</body>
+</html>
